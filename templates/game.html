@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Adventurous Traveler - Game</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/game.css') }}">
+</head>
+<body>
+    <div class="loading-spinner" id="loading-spinner">
+        <div class="spinner"></div>
+    </div>
+    <div id="game-message"></div>
+    <div id="game-screen" class="screen active">
+        <header class="game-header">
+            <div class="logo">
+                <h1><i class="fas fa-plane"></i> Adventurous Traveler</h1>
+            </div>
+            <div class="player-stats">
+                <div class="stat">
+                    <div class="stat-label">Player</div>
+                    <div class="stat-value" id="player-name">-</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Money</div>
+                    <div class="stat-value money" id="money-display">$0</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Fuel</div>
+                    <div class="stat-value fuel" id="fuel-display">0km</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Location</div>
+                    <div class="stat-value" id="location-display">-</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Artifacts</div>
+                    <div class="stat-value artifacts" id="artifacts-display">0/10</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Travels Left</div>
+                    <div class="stat-value travels" id="travels-display">20</div>
+                </div>
+            </div>
+        </header>
+        <main class="game-main" id="main-container">
+            <div class="map-container">
+                <div id="map"></div>
+                <div id="mission-overlay">
+                    <div id="mission-info">
+                        <h4>Current Mission</h4>
+                        <div id="phase-indicator"></div>
+                        <p id="mission-text">Loading mission...</p>
+                        <div id="artifact-progress-info"></div>
+                    </div>
+                </div>
+                <button id="sidebar-toggle" class="sidebar-toggle">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+            </div>
+            <aside class="game-sidebar" id="game-sidebar">
+                <div class="sidebar-header">
+                    <h3>Game Panel</h3>
+                    <button id="refresh-btn" class="icon-btn" title="Refresh">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+                <div class="sidebar-tabs">
+                    <button class="tab-btn active" data-tab="logs">Logs</button>
+                    <button class="tab-btn" data-tab="quests">Quests</button>
+                    <button class="tab-btn" data-tab="clues">Clues</button>
+                    <button class="tab-btn" data-tab="progress">Progress</button>
+                </div>
+                <div class="sidebar-content">
+                    
+                    <div class="tab-content active" id="tab-logs">
+                        <div class="events-list" id="events-list">
+                            <div class="log-item">
+                                <div class="log-time"><i class="fas fa-clock"></i> System</div>
+                                <div class="log-text">Game initialized. Good luck on your adventure!</div>
+                            </div>
+                        </div>
+                        <button class="view-all-btn" onclick="openModal('logs-modal')">
+                            <i class="fas fa-history"></i> View All Logs
+                        </button>
+                    </div>
+                    <div class="tab-content" id="tab-quests">
+                        <div class="quests-list" id="quests-container">
+                            <div class="no-content">
+                                <i class="fas fa-quest"></i>
+                                <p>No active quests. Complete flights to get new quests.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tab-content" id="tab-clues">
+                        <div class="clues-list" id="clues-container">
+                            <div class="no-content">
+                                <i class="fas fa-search"></i>
+                                <p>No clues discovered yet. Fly to discover clues!</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tab-content" id="tab-progress">
+                        <div class="progress-section">
+                            <h4>Artifacts Progress</h4>
+                            <div class="progress-bar">
+                                <div class="progress-fill artifacts" id="artifact-progress-bar" style="width: 0%"></div>
+                            </div>
+                            <div class="progress-text">
+                                <span id="artifact-found-count">0 found</span>
+                                <span id="artifact-delivered-count">0 delivered</span>
+                            </div>
+                        </div>
+                        <div class="progress-section">
+                            <h4>Travels Used</h4>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="travel-progress-bar" style="width: 0%"></div>
+                            </div>
+                            <div class="progress-text">
+                                <span id="travels-used-count">0 used</span>
+                                <span id="travels-left-count">20 left</span>
+                            </div>
+                        </div>
+                        <div class="progress-section">
+                            <h4>Current Resources</h4>
+                            <div class="resource-info">
+                                <div class="resource-item">
+                                    <i class="fas fa-gas-pump"></i>
+                                    <span>Fuel: <strong id="current-fuel">0km</strong></span>
+                                </div>
+                                <div class="resource-item">
+                                    <i class="fas fa-money-bill-wave"></i>
+                                    <span>Money: <strong id="current-money">$0</strong></span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="quick-actions">
+                            <button class="action-btn" onclick="openModal('shop-modal')">
+                                <i class="fas fa-store"></i>
+                                <span>Shop</span>
+                            </button>
+                            <button class="action-btn" onclick="openModal('artifacts-modal')">
+                                <i class="fas fa-gem"></i>
+                                <span>Artifacts</span>
+                            </button>
+                            <button class="action-btn" onclick="openModal('clues-modal')">
+                                <i class="fas fa-search"></i>
+                                <span>All Clues</span>
+                            </button>
+                            <button class="action-btn" onclick="openModal('status-modal')">
+                                <i class="fas fa-chart-line"></i>
+                                <span>Status</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+    </div>
+    <div id="win-screen" class="screen">
+        <div class="end-screen">
+            <div class="end-content end-win">
+                <div class="end-icon">
+                    <i class="fas fa-trophy"></i>
+                </div>
+                <h1>Mission Accomplished!</h1>
+                <p>You successfully delivered all 10 artifacts across Europe.</p>
+                
+                <div class="score-card">
+                    <div class="score-row">
+                        <span>Artifacts Delivered:</span>
+                        <span id="final-artifacts-delivered">10/10</span>
+                    </div>
+                    <div class="score-row">
+                        <span>Travels Used:</span>
+                        <span id="final-travels-used">0</span>
+                    </div>
+                    <div class="score-row">
+                        <span>Money Earned:</span>
+                        <span id="final-money">$0</span>
+                    </div>
+                    <div class="score-row">
+                        <span>Fuel Remaining:</span>
+                        <span id="final-fuel">0km</span>
+                    </div>
+                    <div class="score-row">
+                        <span>Final Score:</span>
+                        <span id="final-score">0</span>
+                    </div>
+                </div>
+                <button onclick="window.location.href='/welcome'" class="btn-primary">
+                    <i class="fas fa-play"></i> Play Again
+                </button>
+            </div>
+        </div>
+    </div>    
+    <div id="lose-screen" class="screen">
+        <div class="end-screen">
+            <div class="end-content end-lose">
+                <div class="end-icon">
+                    <i class="fas fa-plane-slash"></i>
+                </div>
+                <h1>Mission Failed</h1>
+                <p id="lose-reason">You ran out of travels!</p>
+                
+                <div class="score-card">
+                    <div class="score-row">
+                        <span>Artifacts Delivered:</span>
+                        <span id="lose-artifacts">0/10</span>
+                    </div>
+                    <div class="score-row">
+                        <span>Travels Used:</span>
+                        <span id="lose-travels">20</span>
+                    </div>
+                    <div class="score-row">
+                        <span>Money Left:</span>
+                        <span id="lose-money">$0</span>
+                    </div>
+                    <div class="score-row">
+                        <span>Fuel Left:</span>
+                        <span id="lose-fuel">0km</span>
+                    </div>
+                </div>
+                
+                <button onclick="window.location.href='/welcome'" class="btn-primary">
+                    <i class="fas fa-redo"></i> Try Again
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="modal-overlay" id="logs-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-history"></i> Game Logs</h2>
+                <button class="close-btn" onclick="closeModal('logs-modal')">&times;</button>
+            </div>
+            <div class="modal-content">
+                <div class="full-events-list" id="full-events-list"></div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-overlay" id="shop-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-store"></i> Supply Shop</h2>
+                <button class="close-btn" onclick="closeModal('shop-modal')">&times;</button>
+            </div>
+            <div class="modal-content">
+                <div class="shop-grid" id="shop-items-container">
+                    <div class="loading">Loading shop items...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-overlay" id="artifacts-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-archive"></i> Artifact Collection</h2>
+                <button class="close-btn" onclick="closeModal('artifacts-modal')">&times;</button>
+            </div>
+            <div class="modal-content">
+                <div class="artifacts-grid" id="artifacts-grid"></div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-overlay" id="clues-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-search"></i> Discovered Clues</h2>
+                <button class="close-btn" onclick="closeModal('clues-modal')">&times;</button>
+            </div>
+            <div class="modal-content">
+                <div id="clues-container-modal">
+                    <div class="loading">Loading clues...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-overlay" id="status-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-chart-line"></i> Player Status</h2>
+                <button class="close-btn" onclick="closeModal('status-modal')">&times;</button>
+            </div>
+            <div class="modal-content">
+                <div class="status-grid" id="status-grid">
+                    <div class="loading">Loading status...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="/static/js/game.js"></script>
+</body>
+</html>
