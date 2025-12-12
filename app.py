@@ -22,7 +22,6 @@ DB_CONFIG = {
 }
 
 def get_db_connection():
-    """Get database connection"""
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         return conn
@@ -122,7 +121,6 @@ def generate_clue_text(current_airport: Dict, target_airport: Dict, clue_type: s
     return "No clue available."
 
 def get_random_airport(exclude_ids: List[int] = None) -> Optional[Dict]:
-    """Get random airport excluding specified IDs"""
     conn = get_db_connection()
     if not conn:
         return None
@@ -161,7 +159,6 @@ def initialize_game_artifacts(game_id: int, cursor) -> bool:
             
             exclude_ids = [hidden_airport['id']]
             
-            # Get previously assigned delivery airports in this game
             cursor.execute("""
                 SELECT DISTINCT delivery_airport_id 
                 FROM player_artifacts 
@@ -171,7 +168,6 @@ def initialize_game_artifacts(game_id: int, cursor) -> bool:
             previous_deliveries = cursor.fetchall()
             exclude_ids.extend([d['delivery_airport_id'] for d in previous_deliveries])
             
-            # Find unique delivery airport
             exclude_str = ','.join(str(id) for id in exclude_ids)
             cursor.execute(f"""
                 SELECT id FROM airports 
@@ -182,7 +178,6 @@ def initialize_game_artifacts(game_id: int, cursor) -> bool:
             delivery_airport = cursor.fetchone()
             
             if not delivery_airport:
-                # If we run out of airports, use any except hidden
                 cursor.execute(f"""
                     SELECT id FROM airports 
                     WHERE id != {hidden_airport['id']}
@@ -190,7 +185,6 @@ def initialize_game_artifacts(game_id: int, cursor) -> bool:
                 """)
                 delivery_airport = cursor.fetchone()
             
-            # Create player artifact record
             cursor.execute("""
                 INSERT INTO player_artifacts 
                 (game_id, artifact_id, status, delivery_airport_id, is_dug)
@@ -210,16 +204,11 @@ def initialize_game_artifacts(game_id: int, cursor) -> bool:
         return False
 
 def generate_random_event(game_id: int, cursor):
-    """Generate and apply random event"""
     try:
-        # Get random event
         cursor.execute("SELECT * FROM random_events ORDER BY RAND() LIMIT 1")
         event = cursor.fetchone()
-        
         if not event:
             return None
-        
-        # Apply event effects
         money_change = event['money_effect']
         fuel_change = 0
         
@@ -231,8 +220,6 @@ def generate_random_event(game_id: int, cursor):
             fuel_change = int(current_fuel * event['fuel_effect_percent'] / 100)
         
         travels_change = event['travels_effect']
-        
-        # Update game
         cursor.execute("""
             UPDATE games 
             SET money = money + %s,
@@ -240,15 +227,13 @@ def generate_random_event(game_id: int, cursor):
                 travels_remaining = GREATEST(0, travels_remaining + %s)
             WHERE id = %s
         """, (money_change, fuel_change, travels_change, game_id))
-        
-        # Log event
+
         cursor.execute("""
             INSERT INTO game_events 
             (game_id, event_id, description, money_change, fuel_change, travels_change)
             VALUES (%s, %s, %s, %s, %s, %s)
         """, (game_id, event['id'], event['description'], money_change, fuel_change, travels_change))
-        
-        # Log to game logs
+
         cursor.execute("""
             INSERT INTO game_logs 
             (game_id, log_type, description, money_change, fuel_change)
@@ -269,13 +254,11 @@ def generate_random_event(game_id: int, cursor):
         return None
 
 def generate_quest(game_id: int, cursor) -> Optional[Dict]:
-    """Generate a new quest for the player"""
     try:
-        # Get game phase
+
         cursor.execute("SELECT current_phase FROM games WHERE id = %s", (game_id,))
         phase = cursor.fetchone()['current_phase']
-        
-        # Get current artifact
+
         cursor.execute("""
             SELECT pa.artifact_id, a.name as artifact_name
             FROM player_artifacts pa
@@ -315,7 +298,6 @@ def generate_quest(game_id: int, cursor) -> Optional[Dict]:
         reward_money = random.randint(500, 1500)
         reward_fuel = random.randint(200, 600)
         
-        # Insert quest
         cursor.execute("""
             INSERT INTO quests 
             (game_id, quest_type, title, description, requirements, target_artifact_id,
@@ -348,7 +330,6 @@ def generate_quest(game_id: int, cursor) -> Optional[Dict]:
 def generate_clue(game_id: int, cursor, clue_quality: str = 'medium', shop_bonus: float = 0.0) -> Optional[Dict]:
 
     try:
-        # Get game state
         cursor.execute("""
             SELECT g.current_phase, g.current_airport_id, a.latitude, a.longitude,
                     g.clue_accuracy_bonus
@@ -361,8 +342,7 @@ def generate_clue(game_id: int, cursor, clue_quality: str = 'medium', shop_bonus
         
         if not game_state:
             return None
-        
-        # Get current target (either hidden artifact or delivery location)
+
         cursor.execute("""
             SELECT pa.*, a.name as artifact_name, 
                     ha.id as hidden_airport_id, ha.latitude as hidden_lat, ha.longitude as hidden_lng,
@@ -385,12 +365,10 @@ def generate_clue(game_id: int, cursor, clue_quality: str = 'medium', shop_bonus
         
         if not target:
             return None
-        
-        # Determine clue type based on phase
+
         phase = game_state['current_phase']
         
         if phase == 'FINDING_ARTIFACTS':
-            # Clue about hidden location
             if not target['hidden_airport_id']:
                 return None
             target_airport = {
@@ -402,11 +380,11 @@ def generate_clue(game_id: int, cursor, clue_quality: str = 'medium', shop_bonus
                 'country': target['hidden_country'],
                 'code': target['hidden_code'],
                 'airport_size': target['hidden_size'],
-                'runway_length_m': 3000  # Default
+                'runway_length_m': 3000  
             }
             clue_phase = 'FINDING'
         else:
-            # Clue about delivery location
+
             if not target['delivery_airport_id']:
                 return None
             target_airport = {
@@ -418,11 +396,10 @@ def generate_clue(game_id: int, cursor, clue_quality: str = 'medium', shop_bonus
                 'country': target['delivery_country'],
                 'code': target['delivery_code'],
                 'airport_size': target['delivery_size'],
-                'runway_length_m': 3000  # Default
+                'runway_length_m': 3000  
             }
             clue_phase = 'DELIVERING'
-        
-        # Get current airport info
+
         cursor.execute("SELECT * FROM airports WHERE id = %s", (game_state['current_airport_id'],))
         current_airport_db = cursor.fetchone()
         
@@ -433,11 +410,9 @@ def generate_clue(game_id: int, cursor, clue_quality: str = 'medium', shop_bonus
             'latitude': current_airport_db['latitude'],
             'longitude': current_airport_db['longitude']
         }
-        
-        # Determine clue type based on quality and shop bonuses
+
         clue_types = ['DIRECTION', 'DISTANCE', 'REGION', 'AIRPORT_TYPE', 'COUNTRY', 'NAME_PATTERN', 'SPECIFIC']
-        
-        # Apply shop bonuses to clue quality
+
         effective_quality = clue_quality
         if shop_bonus > 0:
             if random.random() < shop_bonus:
@@ -514,7 +489,7 @@ def check_quest_completion(game_id: int, quest_id: int, cursor) -> bool:
         requirements = json.loads(quest['requirements']) if quest['requirements'] else {}
         
         if quest['quest_type'] == 'EXPLORATION':
-            # Check if player visited required regions
+
             cursor.execute("""
                 SELECT COUNT(DISTINCT a.region) as regions_visited
                 FROM game_logs gl
@@ -528,7 +503,7 @@ def check_quest_completion(game_id: int, quest_id: int, cursor) -> bool:
             return regions_visited >= requirements.get('regions_to_visit', 3)
         
         elif quest['quest_type'] == 'TRANSPORT':
-            # Check if player traveled required distance
+
             cursor.execute("""
                 SELECT SUM(distance_km) as total_distance
                 FROM game_logs 
@@ -541,7 +516,7 @@ def check_quest_completion(game_id: int, quest_id: int, cursor) -> bool:
             return total_distance >= requirements.get('distance_km', 1000)
         
         elif quest['quest_type'] == 'SCANNING':
-            # Check if player found clues
+
             cursor.execute("""
                 SELECT COUNT(*) as clues_found
                 FROM game_clues 
@@ -560,9 +535,9 @@ def check_quest_completion(game_id: int, quest_id: int, cursor) -> bool:
         return False
 
 def check_game_status(game_id: int, cursor) -> str:
-    """Check and update game status"""
+
     try:
-        # Get current game state
+
         cursor.execute("""
             SELECT g.artifacts_delivered, g.travels_remaining, g.fuel_km, g.money, 
                    g.game_status, g.current_airport_id, g.current_phase
@@ -575,13 +550,11 @@ def check_game_status(game_id: int, cursor) -> str:
         if game['game_status'] != 'ACTIVE':
             return game['game_status']
         
-        # Check win condition FIRST (highest priority)
+
         if game['artifacts_delivered'] >= 10:
             cursor.execute("UPDATE games SET game_status = 'WON' WHERE id = %s", (game_id,))
             return 'WON'
         
-        # Check if player can still deliver at current location
-        # This prevents losing when at a delivery location with 0 travels left
         if game['current_phase'] == 'DELIVERING_ARTIFACTS':
             cursor.execute("""
                 SELECT COUNT(*) as deliverable_count
@@ -593,20 +566,14 @@ def check_game_status(game_id: int, cursor) -> str:
             
             result = cursor.fetchone()
             can_deliver_here = result['deliverable_count'] > 0 if result else False
-            
-            # If player is at a delivery location with artifacts to deliver,
-            # don't end the game yet even if travels = 0
+
             if can_deliver_here and game['travels_remaining'] == 0:
-                return 'ACTIVE'  # Let them deliver before game ends
-        
-        # Check lose conditions
+                return 'ACTIVE'  
+
         lose_reason = None
-        
-        
         if game['travels_remaining'] <= 0:
-            # Final check: Can they still win from current position?
             if game['current_phase'] == 'FINDING_ARTIFACTS':
-                # Check if already at artifact airport
+
                 cursor.execute("""
                     SELECT artifact_airport_id 
                     FROM games 
@@ -615,7 +582,7 @@ def check_game_status(game_id: int, cursor) -> str:
                 artifact_location = cursor.fetchone()
                 
                 if artifact_location and artifact_location['artifact_airport_id'] == game['current_airport_id']:
-                    return 'ACTIVE'  # Let them dig
+                    return 'ACTIVE' 
                 else:
                     lose_reason = "No more travels left"
             else:
@@ -641,8 +608,6 @@ def check_game_status(game_id: int, cursor) -> str:
         print(f"Check game status error: {e}")
         return 'ACTIVE'
 
-#Routes
-
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -664,7 +629,7 @@ def game_page():
 
 @app.route('/api/game/create', methods=['POST'])
 def create_game():
-    """Create a new game"""
+
     try:
         data = request.json
         player_name = data.get('player_name', 'Adventurer').strip()
@@ -678,7 +643,6 @@ def create_game():
         
         cursor = conn.cursor(dictionary=True)
         
-        # Select random starting airport (prefer large airports)
         cursor.execute("SELECT id FROM airports WHERE airport_size = 'large' ORDER BY RAND() LIMIT 1")
         start_airport = cursor.fetchone()
         
@@ -686,7 +650,6 @@ def create_game():
             cursor.execute("SELECT id FROM airports ORDER BY RAND() LIMIT 1")
             start_airport = cursor.fetchone()
         
-        # Create game record
         cursor.execute("""
             INSERT INTO games 
             (player_name, current_airport_id, money, fuel_km, max_fuel_capacity, 
@@ -699,13 +662,10 @@ def create_game():
         ))
         
         game_id = cursor.lastrowid
-        
-        # Initialize all artifacts (all in one airport, deliver to different airports)
         if not initialize_game_artifacts(game_id, cursor):
             conn.rollback()
             return jsonify({'success': False, 'error': 'Failed to initialize artifacts'})
-        
-        # Log game creation
+
         cursor.execute("""
             INSERT INTO game_logs (game_id, log_type, description)
             VALUES (%s, 'GAME_STATUS', 'Game started! Find all artifacts in one airport, then deliver them.')
@@ -735,7 +695,7 @@ def create_game():
 
 @app.route('/api/game/state')
 def get_game_state():
-    """Get complete game state"""
+
     game_id = request.args.get('game_id') or session.get('game_id')
     
     if not game_id:
@@ -748,7 +708,7 @@ def get_game_state():
     cursor = conn.cursor(dictionary=True)
     
     try:
-        # Get game state with current airport info
+
         cursor.execute("""
             SELECT g.*, 
                     a.code as current_airport_code, a.name as current_airport_name,
@@ -766,8 +726,7 @@ def get_game_state():
         
         if not game:
             return jsonify({'success': False, 'error': 'Game not found'})
-        
-        # Get player artifacts with status
+
         cursor.execute("""
             SELECT pa.*, a.name as artifact_name, a.description, a.artifact_order,
                     a.delivery_reward_money, a.delivery_reward_fuel, a.difficulty_level,
@@ -781,8 +740,7 @@ def get_game_state():
         """, (game_id,))
         
         player_artifacts = cursor.fetchall()
-        
-        # Get revealed clues
+
         cursor.execute("""
             SELECT gc.*, a.name as artifact_name
             FROM game_clues gc
@@ -792,8 +750,7 @@ def get_game_state():
         """, (game_id,))
         
         clues = cursor.fetchall()
-        
-        # Get active quests
+
         cursor.execute("""
             SELECT * FROM quests 
             WHERE game_id = %s AND is_completed = 0 AND is_failed = 0
@@ -802,7 +759,6 @@ def get_game_state():
         
         quests = cursor.fetchall()
         
-        # Get recent logs
         cursor.execute("""
             SELECT * FROM game_logs 
             WHERE game_id = %s 
@@ -811,8 +767,7 @@ def get_game_state():
         """, (game_id,))
         
         logs = cursor.fetchall()
-        
-        # Get player inventory
+
         cursor.execute("""
             SELECT * FROM player_inventory 
             WHERE game_id = %s AND quantity > 0
@@ -820,8 +775,7 @@ def get_game_state():
         """, (game_id,))
         
         inventory = cursor.fetchall()
-        
-        # Get all airports for map
+
         cursor.execute("""
             SELECT id, code, name, city, country, latitude, longitude, 
                    airport_size, region, is_tourist_destination, runway_length_m
@@ -830,8 +784,7 @@ def get_game_state():
         """)
         
         airports = cursor.fetchall()
-        
-        # Check game status
+
         status = check_game_status(game_id, cursor)
         
         return jsonify({
@@ -855,7 +808,6 @@ def get_game_state():
 
 @app.route('/api/game/travel', methods=['POST'])
 def travel():
-    """Travel to another airport"""
     try:
         data = request.json
         game_id = data.get('game_id') or session.get('game_id')
@@ -866,8 +818,7 @@ def travel():
         
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        
-        # Get current game state
+
         cursor.execute("""
             SELECT g.*, a.latitude as current_lat, a.longitude as current_lng
             FROM games g
@@ -885,38 +836,32 @@ def travel():
         
         if game['current_airport_id'] == destination_id:
             return jsonify({'success': False, 'error': 'Already at this airport'})
-        
-        # Get destination airport
+
         cursor.execute("SELECT * FROM airports WHERE id = %s", (destination_id,))
         destination = cursor.fetchone()
         
         if not destination:
             return jsonify({'success': False, 'error': 'Destination not found'})
-        
-        # Calculate distance and fuel cost
+
         distance = calculate_distance(
             game['current_lat'], game['current_lng'],
             destination['latitude'], destination['longitude']
         )
-        
-        # Apply fuel efficiency bonus
+
         fuel_cost = int(distance * (1 - game.get('fuel_efficiency_bonus', 0) / 100.0))
-        
-        # FIXED: Check fuel pass FIRST before checking fuel availability
+
         will_use_fuel_pass = game.get('fuel_pass_remaining', 0) > 0
         
         if will_use_fuel_pass:
-            # Using fuel pass - no fuel cost
+
             actual_fuel_cost = 0
         else:
-            # Not using fuel pass - check if enough fuel
             actual_fuel_cost = fuel_cost
             if game['fuel_km'] < fuel_cost:
                 return jsonify({'success': False, 'error': f'Need {fuel_cost}km fuel, have {game["fuel_km"]}km. Consider buying a Fuel Pass!'})
         
-        # Update game state
         if will_use_fuel_pass:
-            # Deduct fuel pass
+
             cursor.execute("""
                 UPDATE games 
                 SET fuel_km = fuel_km - %s,
@@ -929,7 +874,6 @@ def travel():
                 WHERE id = %s
             """, (actual_fuel_cost, destination_id, game_id))
         else:
-            # Normal travel
             cursor.execute("""
                 UPDATE games 
                 SET fuel_km = fuel_km - %s,
@@ -940,8 +884,7 @@ def travel():
                     updated_at = NOW()
                 WHERE id = %s
             """, (actual_fuel_cost, destination_id, game_id))
-        
-        # Log flight
+
         log_desc = f"Traveled to {destination['code']} ({distance}km)"
         if will_use_fuel_pass:
             log_desc += " [FUEL PASS USED]"
@@ -967,13 +910,11 @@ def travel():
                 'country': destination['country']
             }
         }
-        
-        # Check if at artifact airport (finding phase)
+
         if game['current_phase'] == 'FINDING_ARTIFACTS' and destination_id == game['artifact_airport_id']:
             result['at_artifact_airport'] = True
             result['can_dig'] = True
-        
-        # Check for artifact delivery (if in DELIVERING phase)
+
         elif game['current_phase'] == 'DELIVERING_ARTIFACTS':
             cursor.execute("""
                 SELECT pa.*, a.name as artifact_name, a.delivery_reward_money, a.delivery_reward_fuel
@@ -988,7 +929,7 @@ def travel():
                 result['can_deliver'] = True
                 result['artifacts_count'] = len(artifacts_to_deliver)
         
-        # Random events
+
         event_result = None
         if random.random() < 0.70:
             event_result = generate_random_event(game_id, cursor)
@@ -996,8 +937,7 @@ def travel():
                 result['event'] = event_result
                 conn.commit()
                 cursor = conn.cursor(dictionary=True)
-        
-        # Clues
+
         base_clue_chance = 0.40
         shop_bonus = game.get('clue_reveal_chance', 0)
         total_clue_chance = min(0.95, base_clue_chance + shop_bonus)
@@ -1012,16 +952,14 @@ def travel():
             clue_result = generate_clue(game_id, cursor, clue_quality, shop_bonus)
             if clue_result:
                 result['clue'] = clue_result
-        
-        # Quests
+
         if random.random() < 0.20:
             quest_result = generate_quest(game_id, cursor)
             if quest_result:
                 result['quest'] = quest_result
         
         conn.commit()
-        
-        # Get updated game state
+
         cursor.execute("SELECT * FROM games WHERE id = %s", (game_id,))
         updated_game = cursor.fetchone()
         
@@ -1116,7 +1054,7 @@ def dig_for_artifacts():
                 'phase_changed': True
             })
         else:
-            # Dig failed
+
             conn.commit()
             return jsonify({
                 'success': True,
@@ -1230,7 +1168,6 @@ def deliver_artifacts():
 
 @app.route('/api/game/complete-quest', methods=['POST'])
 def complete_quest():
-    """Complete a quest"""
     try:
         data = request.json
         game_id = data.get('game_id') or session.get('game_id')
@@ -1241,12 +1178,10 @@ def complete_quest():
         
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        
-        # Check if quest conditions are met
+
         if not check_quest_completion(game_id, quest_id, cursor):
             return jsonify({'success': False, 'error': 'Quest conditions not met'})
-        
-        # Get quest
+
         cursor.execute("""
             SELECT * FROM quests 
             WHERE id = %s AND game_id = %s AND is_completed = 0 AND is_failed = 0
@@ -1256,15 +1191,13 @@ def complete_quest():
         
         if not quest:
             return jsonify({'success': False, 'error': 'Quest not found or already completed'})
-        
-        # Check if timed quest expired
+
         if quest['time_limit_minutes'] and quest['expires_at']:
             if datetime.now() > quest['expires_at']:
                 cursor.execute("UPDATE quests SET is_failed = 1 WHERE id = %s", (quest_id,))
                 conn.commit()
                 return jsonify({'success': False, 'error': 'Quest expired'})
-        
-        # Apply rewards
+
         cursor.execute("""
             UPDATE games 
             SET money = money + %s,
@@ -1272,11 +1205,9 @@ def complete_quest():
                 travels_remaining = travels_remaining + %s
             WHERE id = %s
         """, (quest['reward_money'], quest['reward_fuel'], quest.get('reward_travels', 0), game_id))
-        
-        # Mark quest as completed
+
         cursor.execute("UPDATE quests SET is_completed = 1 WHERE id = %s", (quest_id,))
-        
-        # Give clue reward if specified
+
         clue_result = None
         if quest['reward_clue_quality']:
             clue_result = generate_clue(game_id, cursor, quest['reward_clue_quality'])
@@ -1323,7 +1254,7 @@ def complete_quest():
 
 @app.route('/api/shop/items')
 def get_shop_items():
-    """Get available shop items"""
+
     try:
         game_id = request.args.get('game_id') or session.get('game_id')
         
@@ -1332,8 +1263,7 @@ def get_shop_items():
         
         cursor.execute("SELECT * FROM shop_items WHERE is_active = 1 ORDER BY price")
         items = cursor.fetchall()
-        
-        # Get player's purchase counts for each item
+
         purchase_counts = {}
         if game_id:
             cursor.execute("""
@@ -1345,8 +1275,7 @@ def get_shop_items():
             
             for row in cursor.fetchall():
                 purchase_counts[row['shop_item_id']] = row['count']
-        
-        # Add purchase count to each item
+
         for item in items:
             item['purchased_count'] = purchase_counts.get(item['id'], 0)
             item['can_purchase'] = item['purchased_count'] < item.get('max_purchases_per_game', 3)
@@ -1375,15 +1304,13 @@ def buy_shop_item():
         
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        
-        # Get item
+
         cursor.execute("SELECT * FROM shop_items WHERE id = %s AND is_active = 1", (item_id,))
         item = cursor.fetchone()
         
         if not item:
             return jsonify({'success': False, 'error': 'Item not available'})
-        
-        # Check purchase limit
+
         cursor.execute("""
             SELECT COUNT(*) as count 
             FROM player_purchases 
@@ -1395,7 +1322,6 @@ def buy_shop_item():
         if purchase_count >= item.get('max_purchases_per_game', 3):
             return jsonify({'success': False, 'error': 'Purchase limit reached for this item'})
         
-        # Get player money
         cursor.execute("SELECT money FROM games WHERE id = %s", (game_id,))
         game = cursor.fetchone()
         
@@ -1526,7 +1452,6 @@ def buy_shop_item():
                 """, (item['price'], game_id))
                 
         elif item['category'] == 'LOOTBOX':
-            # Random reward
             reward_type = random.choice(['money', 'fuel', 'clue', 'travel'])
             
             if reward_type == 'money':
@@ -1566,22 +1491,19 @@ def buy_shop_item():
                     WHERE id = %s
                 """, (item['price'], game_id))
                 result['reward'] = {'type': 'clue', 'value': clue_result}
-        
-        # Record purchase
         cursor.execute("""
             INSERT INTO player_purchases 
             (game_id, shop_item_id, quantity, total_price)
             VALUES (%s, %s, 1, %s)
         """, (game_id, item_id, item['price']))
         
-        # Add to inventory
+
         cursor.execute("""
             INSERT INTO player_inventory 
             (game_id, item_type, item_name, quantity, is_active)
             VALUES (%s, %s, %s, 1, 0)
         """, (game_id, item['category'], item['name']))
-        
-        # Log purchase
+
         cursor.execute("""
             INSERT INTO game_logs 
             (game_id, log_type, description, money_change)
@@ -1605,7 +1527,6 @@ def buy_shop_item():
 
 @app.route('/api/inventory/use', methods=['POST'])
 def use_inventory_item():
-    """Use inventory item"""
     try:
         data = request.json
         game_id = data.get('game_id') or session.get('game_id')
@@ -1616,8 +1537,7 @@ def use_inventory_item():
         
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        
-        # Get inventory item
+
         cursor.execute("""
             SELECT * FROM player_inventory 
             WHERE id = %s AND game_id = %s AND quantity > 0
@@ -1628,14 +1548,13 @@ def use_inventory_item():
         if not item:
             return jsonify({'success': False, 'error': 'Item not found'})
         
-        # Activate item
+
         cursor.execute("""
             UPDATE player_inventory 
             SET is_active = 1, remaining_uses = remaining_uses - 1
             WHERE id = %s
         """, (inventory_id,))
-        
-        # If no more uses, remove item
+
         cursor.execute("""
             UPDATE player_inventory 
             SET quantity = quantity - 1
@@ -1646,8 +1565,7 @@ def use_inventory_item():
             DELETE FROM player_inventory 
             WHERE id = %s AND quantity <= 0
         """, (inventory_id,))
-        
-        # Log usage
+
         cursor.execute("""
             INSERT INTO game_logs 
             (game_id, log_type, description)
@@ -1671,7 +1589,6 @@ def use_inventory_item():
 
 @app.route('/api/game/quit', methods=['POST'])
 def quit_game():
-    """Quit the current game"""
     try:
         game_id = request.json.get('game_id') or session.get('game_id')
         
@@ -1680,15 +1597,13 @@ def quit_game():
         
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        
-        # Update game status to quit
+
         cursor.execute("""
             UPDATE games 
             SET game_status = 'QUIT', quit_at = NOW()
             WHERE id = %s AND game_status = 'ACTIVE'
         """, (game_id,))
-        
-        # Log quit action
+
         cursor.execute("""
             INSERT INTO game_logs 
             (game_id, log_type, description)
@@ -1696,8 +1611,6 @@ def quit_game():
         """, (game_id,))
         
         conn.commit()
-        
-        # Clear session
         session.pop('game_id', None)
         session.pop('player_name', None)
         

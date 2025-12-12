@@ -42,19 +42,5 @@
     </main>
 
     <script src="{{ url_for('static', filename='js/navigation.js') }}"></script>
-    <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const playBtn = document.getElementById('play-btn');
-        if (playBtn) {
-            playBtn.addEventListener('click', function() {
-                document.body.style.opacity = '0';
-                setTimeout(() => {
-                    window.location.href = "{{ url_for('welcome') }}";
-                }, 400);
-            });
-        }
-    });
-</script>
-
 </body>
 </html>

@@ -130,7 +130,6 @@ function updateMissionOverlay(game) {
 function updateMapMarkers(data) {
     Object.values(markers).forEach(marker => marker.remove());
     markers = {};
-    
     const game = data.game;
     const airports = data.airports;
     
